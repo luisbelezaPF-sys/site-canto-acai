@@ -1,0 +1,101 @@
+import { MenuItem } from './types'
+
+export const cardapioData: MenuItem[] = [
+  // AÇAÍ
+  {
+    id: 'acai-normal',
+    categoria: 'acai',
+    nome: 'Açaí',
+    tamanhos: [
+      { ml: '300ml', preco: 10 },
+      { ml: '400ml', preco: 12 },
+      { ml: '500ml', preco: 15 },
+      { ml: '700ml', preco: 18 },
+    ],
+    acompanhamentos: [
+      'Ovomaltine',
+      'Nutella',
+      'Leite Ninho',
+      'Ferrero Rocher',
+      'Avelã',
+      'Mousse',
+      'Trento',
+      'Sonho de Valsa',
+      'Confete',
+      'Bis',
+      'Kit Kat',
+      'Paçoca',
+      'Chantilly',
+      'Leite Condensado',
+      'Danoninho',
+      'Granola',
+    ],
+    frutas: ['Banana', 'Morango', 'Uva', 'Kiwi', 'Manga'],
+    coberturas: ['Chocolate', 'Morango', 'Caramelo'],
+  },
+  {
+    id: 'acai-zero',
+    categoria: 'acai',
+    nome: 'Açaí Linha Zero',
+    tamanhos: [
+      { ml: '300ml', preco: 15 },
+      { ml: '500ml', preco: 21 },
+      { ml: '700ml', preco: 27 },
+    ],
+    acompanhamentos: [
+      'Ovomaltine',
+      'Nutella',
+      'Leite Ninho',
+      'Ferrero Rocher',
+      'Avelã',
+      'Mousse',
+      'Trento',
+      'Sonho de Valsa',
+      'Confete',
+      'Bis',
+      'Kit Kat',
+      'Paçoca',
+      'Chantilly',
+      'Leite Condensado',
+      'Danoninho',
+      'Granola',
+    ],
+    frutas: ['Banana', 'Morango', 'Uva', 'Kiwi', 'Manga'],
+    coberturas: ['Chocolate', 'Morango', 'Caramelo'],
+  },
+  // MILKSHAKE
+  {
+    id: 'milkshake',
+    categoria: 'milkshake',
+    nome: 'Milkshake',
+    tamanhos: [
+      { ml: '300ml', preco: 14 },
+      { ml: '500ml', preco: 16 },
+      { ml: '700ml', preco: 18 },
+    ],
+    sabores: ['Ovomaltine', 'Café', 'Rafaello', 'Unicórnio'],
+  },
+  // BROWNIE
+  {
+    id: 'brownie',
+    categoria: 'brownie',
+    nome: 'Brownie',
+    preco: 19,
+    cremes: ['Ovomaltine', 'Ferrero Rocher', 'Leite Ninho', 'Rafaello', 'Avelã', 'Chantilly'],
+    frutas: ['Uva', 'Morango', 'Kiwi', 'Banana'],
+    sorvetes: ['Café', 'Ovomaltine', 'Rafaello', 'Morango', 'Chocolate Suíço'],
+  },
+  // BEBIDAS
+  {
+    id: 'agua',
+    categoria: 'bebida',
+    nome: 'Água',
+    preco: 3,
+  },
+  {
+    id: 'agua-gas',
+    categoria: 'bebida',
+    nome: 'Água com Gás',
+    preco: 4,
+  },
+]
