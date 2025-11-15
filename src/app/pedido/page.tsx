@@ -5,6 +5,7 @@ import { ItemCarrinho } from '@/lib/types'
 import { Trash2, Send } from 'lucide-react'
 import Navbar from '@/components/custom/navbar'
 import { supabase } from '@/lib/supabase'
+import { gerarCupomPDF, imprimirCupom } from '@/lib/pdf-generator'
 
 export default function PedidoPage() {
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([])
@@ -39,6 +40,8 @@ export default function PedidoPage() {
     setEnviando(true)
 
     try {
+      const dataHora = new Date().toISOString()
+
       // 1. Registrar pedido no Supabase
       const { data: pedidoData, error: pedidoError } = await supabase
         .from('pedidos')
@@ -48,57 +51,104 @@ export default function PedidoPage() {
           itens: carrinho,
           total: total,
           taxa_entrega: taxaEntrega,
+          data_hora: dataHora,
         })
         .select()
         .single()
 
       if (pedidoError) {
         console.error('Erro ao salvar pedido:', pedidoError)
+        throw pedidoError
       }
 
-      const numeroPedido = pedidoData?.id?.slice(0, 8) || Date.now().toString().slice(-8)
+      const pedidoId = pedidoData?.id?.slice(0, 8) || Date.now().toString().slice(-8)
 
       // 2. Registrar no faturamento
       await supabase.from('faturamento').insert({
         valor: total,
+        data_hora: dataHora,
       })
 
-      // 3. Montar mensagem WhatsApp
-      let mensagem = `*NOVO PEDIDO - #${numeroPedido}*\n\n`
-      mensagem += `*Cliente:* ${nomeCliente}\n`
-      mensagem += `*Endereco:* ${endereco}\n`
-      mensagem += `*Data/Hora:* ${new Date().toLocaleString('pt-BR')}\n\n`
-      mensagem += `*ITENS:*\n`
+      // 3. Gerar PDF do cupom
+      const cupomBlob = gerarCupomPDF({
+        pedidoId: pedidoId,
+        nomeCliente: nomeCliente,
+        endereco: endereco,
+        itens: carrinho,
+        subtotal: subtotal,
+        taxaEntrega: taxaEntrega,
+        total: total,
+        dataHora: new Date(dataHora).toLocaleString('pt-BR'),
+      })
 
-      carrinho.forEach((item, index) => {
-        mensagem += `\n${index + 1}. ${item.nome}`
-        if (item.tamanho) mensagem += ` - ${item.tamanho}`
-        if (item.sabor) mensagem += `\n   Sabor: ${item.sabor}`
+      // 4. Salvar PDF no Supabase Storage
+      const fileName = `cupom-${pedidoId}-${Date.now()}.pdf`
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('cupons')
+        .upload(fileName, cupomBlob, {
+          contentType: 'application/pdf',
+          upsert: false,
+        })
+
+      let cupomUrl = ''
+      if (!uploadError && uploadData) {
+        // Obter URL pública
+        const { data: urlData } = supabase.storage.from('cupons').getPublicUrl(fileName)
+        cupomUrl = urlData.publicUrl
+
+        // Salvar registro do cupom
+        await supabase.from('cupons').insert({
+          pedido_id: pedidoData.id,
+          pdf_url: cupomUrl,
+          data_hora: dataHora,
+        })
+
+        // Abrir para impressão automaticamente
+        setTimeout(() => {
+          imprimirCupom(cupomUrl)
+        }, 1000)
+      }
+
+      // 5. Montar mensagem WhatsApp (sem emojis)
+      let mensagem = `PEDIDO NOVO - CANTO DO ACAI\n\n`
+      mensagem += `Nome: ${nomeCliente}\n`
+      mensagem += `Endereco: ${endereco}\n`
+      mensagem += `Data/Hora: ${new Date(dataHora).toLocaleString('pt-BR')}\n`
+      mensagem += `Pedido: #${pedidoId}\n\n`
+      mensagem += `Itens:\n`
+
+      carrinho.forEach((item) => {
+        let itemDesc = `- ${item.nome}`
+        if (item.tamanho) itemDesc += ` ${item.tamanho}`
+        if (item.sabor) itemDesc += ` - ${item.sabor}`
         if (item.acompanhamentos && item.acompanhamentos.length > 0) {
-          mensagem += `\n   Acompanhamentos: ${item.acompanhamentos.join(', ')}`
+          itemDesc += ` - ${item.acompanhamentos.join(', ')}`
         }
         if (item.frutas && item.frutas.length > 0) {
-          mensagem += `\n   Frutas: ${item.frutas.join(', ')}`
+          itemDesc += ` - ${item.frutas.join(', ')}`
         }
-        if (item.cobertura) mensagem += `\n   Cobertura: ${item.cobertura}`
+        if (item.cobertura) itemDesc += ` - ${item.cobertura}`
         if (item.cremes && item.cremes.length > 0) {
-          mensagem += `\n   Cremes: ${item.cremes.join(', ')}`
+          itemDesc += ` - ${item.cremes.join(', ')}`
         }
-        if (item.sorvete) mensagem += `\n   Sorvete: ${item.sorvete} (+R$ 4,00)`
-        mensagem += `\n   Quantidade: ${item.quantidade}x`
-        mensagem += `\n   Subtotal: R$ ${(item.preco * item.quantidade).toFixed(2)}\n`
+        if (item.sorvete) itemDesc += ` - Sorvete ${item.sorvete}`
+        itemDesc += ` - R$ ${(item.preco * item.quantidade).toFixed(2)}`
+        mensagem += `${itemDesc}\n`
       })
 
-      mensagem += `\n*SUBTOTAL:* R$ ${subtotal.toFixed(2)}`
-      mensagem += `\n*Taxa de Entrega:* R$ ${taxaEntrega.toFixed(2)}`
-      mensagem += `\n*TOTAL:* R$ ${total.toFixed(2)}`
+      mensagem += `\nTaxa de entrega: R$ ${taxaEntrega.toFixed(2)}`
+      mensagem += `\nTOTAL: R$ ${total.toFixed(2)}`
 
-      // 4. Enviar para WhatsApp
+      if (cupomUrl) {
+        mensagem += `\n\nCupom fiscal: ${cupomUrl}`
+      }
+
+      // 6. Enviar para WhatsApp
       const telefone = '5535997440729'
       const urlWhatsApp = `https://wa.me/${telefone}?text=${encodeURIComponent(mensagem)}`
       window.open(urlWhatsApp, '_blank')
 
-      // 5. Limpar carrinho e mostrar sucesso
+      // 7. Limpar carrinho e mostrar sucesso
       setCarrinho([])
       localStorage.removeItem('carrinho')
       setSucesso(true)
@@ -121,7 +171,7 @@ export default function PedidoPage() {
       <Navbar />
       <main className="min-h-screen pt-20 pb-8 px-4 relative z-10">
         <div className="container mx-auto max-w-4xl">
-          <h1 className="text-3xl md:text-5xl font-bold text-yellow-400 mb-6 md:mb-8 text-center">
+          <h1 className="text-3xl md:text-5xl font-bold text-[#FFC300] mb-6 md:mb-8 text-center">
             Seu Pedido
           </h1>
 
@@ -138,7 +188,7 @@ export default function PedidoPage() {
               </p>
               <a
                 href="/"
-                className="inline-block bg-yellow-400 hover:bg-yellow-500 text-purple-900 font-bold py-3 md:py-4 px-6 md:px-8 rounded-xl transition-all text-base md:text-lg"
+                className="inline-block bg-[#FFC300] hover:bg-yellow-500 text-[#4B0082] font-bold py-3 md:py-4 px-6 md:px-8 rounded-xl transition-all text-base md:text-lg"
               >
                 Ver Cardápio
               </a>
@@ -147,7 +197,7 @@ export default function PedidoPage() {
             <div className="space-y-6">
               {/* Itens do Carrinho */}
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 md:p-6">
-                <h2 className="text-xl md:text-2xl font-bold text-yellow-400 mb-4">
+                <h2 className="text-xl md:text-2xl font-bold text-[#FFC300] mb-4">
                   Itens do Pedido
                 </h2>
                 <div className="space-y-4">
@@ -216,7 +266,7 @@ export default function PedidoPage() {
                     <span>Taxa de Entrega:</span>
                     <span className="font-semibold">R$ {taxaEntrega.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-yellow-400 text-xl md:text-2xl font-bold">
+                  <div className="flex justify-between text-[#FFC300] text-xl md:text-2xl font-bold">
                     <span>Total:</span>
                     <span>R$ {total.toFixed(2)}</span>
                   </div>
@@ -225,7 +275,7 @@ export default function PedidoPage() {
 
               {/* Formulário de Entrega */}
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 md:p-6">
-                <h2 className="text-xl md:text-2xl font-bold text-yellow-400 mb-4">
+                <h2 className="text-xl md:text-2xl font-bold text-[#FFC300] mb-4">
                   Dados para Entrega
                 </h2>
                 <div className="space-y-4">
@@ -237,7 +287,7 @@ export default function PedidoPage() {
                       type="text"
                       value={nomeCliente}
                       onChange={(e) => setNomeCliente(e.target.value)}
-                      className="w-full p-3 md:p-4 rounded-xl bg-white/10 text-white border border-white/20 focus:border-yellow-400 focus:outline-none text-base md:text-lg"
+                      className="w-full p-3 md:p-4 rounded-xl bg-white/10 text-white border border-white/20 focus:border-[#FFC300] focus:outline-none text-base md:text-lg"
                       placeholder="Digite seu nome"
                     />
                   </div>
@@ -248,7 +298,7 @@ export default function PedidoPage() {
                     <textarea
                       value={endereco}
                       onChange={(e) => setEndereco(e.target.value)}
-                      className="w-full p-3 md:p-4 rounded-xl bg-white/10 text-white border border-white/20 focus:border-yellow-400 focus:outline-none min-h-[100px] text-base md:text-lg"
+                      className="w-full p-3 md:p-4 rounded-xl bg-white/10 text-white border border-white/20 focus:border-[#FFC300] focus:outline-none min-h-[100px] text-base md:text-lg"
                       placeholder="Rua, número, bairro, complemento..."
                     />
                   </div>
@@ -259,7 +309,7 @@ export default function PedidoPage() {
               <button
                 onClick={finalizarPedido}
                 disabled={enviando}
-                className="w-full bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-400 text-purple-900 font-bold py-4 md:py-5 px-6 md:px-8 rounded-xl transition-all flex items-center justify-center space-x-3 text-lg md:text-xl shadow-xl"
+                className="w-full bg-[#FFC300] hover:bg-yellow-500 disabled:bg-gray-400 text-[#4B0082] font-bold py-4 md:py-5 px-6 md:px-8 rounded-xl transition-all flex items-center justify-center space-x-3 text-lg md:text-xl shadow-xl"
               >
                 <Send className="w-6 h-6 md:w-7 md:h-7" />
                 <span>{enviando ? 'Enviando...' : 'Finalizar Pedido'}</span>
